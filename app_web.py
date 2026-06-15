@@ -11,8 +11,11 @@ from logica_duplicidad import verificar_duplicidad, registrar_en_historial
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Laser606 | Club Exclusivo", layout="wide")
 
-# Llave maestra/código de acceso para esta versión Beta Cerrado
+# Llave maestra/código de acceso para esta versión Beta Cerrada
 CODIGO_VALIDO = "LIDER606"
+
+# Leemos la API Key centralizada desde los secretos de Streamlit
+API_KEY_MAESTRA = st.secrets.get("GEMINI_API_KEY", "")
 
 if "lote_facturas" not in st.session_state:
     st.session_state.lote_facturas = []
@@ -105,7 +108,6 @@ else:
         st.markdown("---")
         st.header("⚙️ Configuración Fiscal")
         rnc_empresa = st.text_input("🏢 RNC de la Empresa:")
-        api_key_input = st.text_input("🔑 Google AI Studio API Key:", type="password")
         periodo_actual = st.text_input("📅 Período Fiscal:", value="202606")
         st.markdown("---")
         if st.button("🚪 Salir del Club"):
@@ -114,18 +116,24 @@ else:
 
     st.title("⚡ Laser606 - Módulo de Auditoría Fiscal (606)")
 
-    if not rnc_empresa or not api_key_input:
-        st.warning("Por favor, ingresa el RNC de la empresa y tu API Key en la barra lateral para acceder a la herramienta.")
+    # Validamos que la API Key maestra esté configurada correctamente
+    if not API_KEY_MAESTRA:
+        st.error("⚠️ La API Key de Google no está configurada en el servidor. Por favor, añade la variable GEMINI_API_KEY en los Secrets de la aplicación en Streamlit Cloud.")
+        st.stop()
+
+    if not rnc_empresa:
+        st.warning("Por favor, ingresa el RNC de la empresa en la barra lateral para acceder a la herramienta.")
         st.stop()
 
     archivos = st.file_uploader("📥 Arrastra tus facturas (PDFs)", accept_multiple_files=True, type=["pdf"])
 
-    if archivos and api_key_input:
+    if archivos:
         nombres_proc = [f["nombre_archivo"] for f in st.session_state.lote_facturas]
         nuevos = [a for a in archivos if a.name not in nombres_proc]
         if nuevos:
             for a in nuevos:
-                res = procesar_con_ia(a, api_key_input, rnc_empresa)
+                # Usamos la API Key centralizada y segura del servidor
+                res = procesar_con_ia(a, API_KEY_MAESTRA, rnc_empresa)
                 if res: 
                     st.session_state.lote_facturas.append(res)
             st.rerun()
