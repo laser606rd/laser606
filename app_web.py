@@ -108,13 +108,18 @@ else:
         st.markdown("---")
         st.header("⚙️ Configuración Fiscal")
         rnc_empresa = st.text_input("🏢 RNC de la Empresa:")
+        nombre_empresa = st.text_input("📝 Nombre de la Empresa:") # ¡Nuevo campo!
         periodo_actual = st.text_input("📅 Período Fiscal:", value="202606")
         st.markdown("---")
         if st.button("🚪 Salir del Club"):
             st.session_state.ingreso_club = False
             st.rerun()
 
-    st.title("⚡ Laser606 - Módulo de Auditoría Fiscal (606)")
+    # TÍTULO DINÁMICO
+    if nombre_empresa and nombre_empresa.strip() != "":
+        st.title(f"📋 Registraremos facturas para: {nombre_empresa}")
+    else:
+        st.title("⚡ Laser606 - Módulo de Auditoría Fiscal (606)")
 
     # Validamos que la API Key maestra esté configurada correctamente
     if not API_KEY_MAESTRA:
@@ -139,7 +144,11 @@ else:
             st.rerun()
 
     if st.session_state.lote_facturas:
-        st.subheader(f"📋 Lote de auditoría para empresa: {rnc_empresa}")
+        sub_label = f"📋 Lote de auditoría para empresa RNC: {rnc_empresa}"
+        if nombre_empresa:
+            sub_label = f"📋 Lote de auditoría para: {nombre_empresa} (RNC: {rnc_empresa})"
+        st.subheader(sub_label)
+        
         for idx, f in enumerate(st.session_state.lote_facturas):
             errs = validar_factura(f)
             with st.container(border=True):
