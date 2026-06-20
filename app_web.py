@@ -2,112 +2,75 @@ import streamlit as st
 import pandas as pd
 import json
 import fitz
-import concurrent.futures # ¡NUEVO!
+import io
+from PIL import Image
+from pyzbar.pyzbar import decode
 from google import genai
 from google.genai import types
-
-# Importamos las funciones desde nuestro archivo separado
-from logica_duplicidad import verificar_duplicidad, registrar_en_historial
+from logica_duplicidad import verificar_duplicidad
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Laser606 | Club Exclusivo", layout="wide")
+st.set_page_config(page_title="FacturaFlow 360", layout="wide")
+API_KEY = st.secrets.get("GEMINI_API_KEY")
 
-CODIGO_VALIDO = "LIDER606"
-API_KEY_MAESTRA = st.secrets.get("GEMINI_API_KEY", "")
+if "lote_facturas" not in st.session_state: st.session_state.lote_facturas = []
 
-if "lote_facturas" not in st.session_state:
-    st.session_state.lote_facturas = []
-if "ingreso_club" not in st.session_state:
-    st.session_state.ingreso_club = False
+st.title("🚀 FacturaFlow 360 - Auditoría Fiscal Ágil")
+rnc_empresa = st.sidebar.text_input("RNC de la Empresa:")
 
-def validar_factura(f):
-    errores = []
-    if not f.get("rnc_suplidor"): errores.append("RNC Suplidor faltante")
-    if not f.get("ncf"): errores.append("NCF faltante")
-    return errores
+# --- FUNCIONES DE SOPORTE ---
+def optimizar_imagen(img_bytes):
+    image = Image.open(io.BytesIO(img_bytes)).convert('L')
+    if image.width > 1200:
+        ratio = 1200 / float(image.width)
+        image = image.resize((1200, int(float(image.height) * ratio)), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    image.save(output, format='JPEG', quality=85)
+    return output.getvalue(), image
 
-def procesar_con_ia(archivo, api_key, rnc_empresa):
-    try:
-        client = genai.Client(api_key=api_key)
-        doc = fitz.open(stream=archivo.read(), filetype="pdf")
-        img_bytes = doc.load_page(0).get_pixmap().pil_tobytes("png")
-        
-        part = types.Part.from_bytes(data=img_bytes, mime_type="image/png")
-        prompt = 'Extrae en JSON (minúsculas): {"rnc_suplidor": "", "rnc_comprador": "", "ncf": "", "fecha": "", "monto_total": 0.00, "itbis": 0.00}'
-        
-        response = client.models.generate_content(
-            model='gemini-2.0-flash', # Usamos flash para máxima velocidad
-            contents=[part, prompt],
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        
-        extracted = json.loads(response.text)
-        extracted["nombre_archivo"] = archivo.name
-        rnc_en_factura = extracted.get("rnc_comprador", "")
-        if rnc_en_factura and str(rnc_en_factura).strip() != str(rnc_empresa).strip():
-            extracted["alerta"] = f"⚠️ RNC {rnc_en_factura} no coincide con {rnc_empresa}."
-        else:
-            extracted["alerta"] = verificar_duplicidad(extracted.get("ncf"), extracted.get("rnc_suplidor"), rnc_empresa)
-        return extracted
-    except Exception:
-        return None
-
-# --- UI ---
-if not st.session_state.ingreso_club:
-    st.markdown("<h1 style='text-align: center;'>⚡ Laser606 System</h1>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([3, 2, 3])
-    with col2:
-        codigo_ingreso = st.text_input("🗝️ Ingresa tu código:", type="password")
-        if st.button("Ingresar"):
-            if codigo_ingreso.strip() == CODIGO_VALIDO:
-                st.session_state.ingreso_club = True
-                st.rerun()
-else:
-    with st.sidebar:
-        st.title("⚡ Laser606 - Élite")
-        rnc_empresa = st.text_input("🏢 RNC de la Empresa:")
-        nombre_empresa = st.text_input("📝 Nombre de la Empresa:")
-        periodo_actual = st.text_input("📅 Período Fiscal:", value="202606")
-        if st.button("🚪 Salir"):
-            st.session_state.ingreso_club = False
-            st.rerun()
-
-    if nombre_empresa:
-        st.title(f"📋 Registraremos facturas para: {nombre_empresa}")
-    else:
-        st.title("⚡ Laser606 - Auditoría Fiscal")
-
-    if not API_KEY_MAESTRA or not rnc_empresa:
-        st.error("Configura API Key en Secrets y RNC en barra lateral.")
-        st.stop()
-
-    archivos = st.file_uploader("📥 Arrastra PDFs", accept_multiple_files=True, type=["pdf"])
-
-    if archivos:
-        nombres_proc = [f["nombre_archivo"] for f in st.session_state.lote_facturas]
-        nuevos = [a for a in archivos if a.name not in nombres_proc]
-        if nuevos:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(procesar_con_ia, a, API_KEY_MAESTRA, rnc_empresa): a for a in nuevos}
-                for i, future in enumerate(concurrent.futures.as_completed(futures)):
-                    res = future.result()
-                    if res: st.session_state.lote_facturas.append(res)
-                    status_text.text(f"Procesando: {i+1} de {len(nuevos)}")
-                    progress_bar.progress((i + 1) / len(nuevos))
-            st.rerun()
-
-    for idx, f in enumerate(st.session_state.lote_facturas):
-        with st.container(border=True):
-            if f.get('alerta'): st.error(f.get('alerta'))
-            col_a, col_b = st.columns(2)
-            with col_a:
-                f["ncf"] = st.text_input("NCF", value=str(f.get("ncf", "")), key=f"ncf_{idx}")
-            with col_b:
-                f["monto_total"] = st.number_input("Total", value=float(f.get("monto_total", 0)), key=f"tot_{idx}")
+if API_KEY and rnc_empresa:
+    archivo = st.file_uploader("Sube factura (PDF/Imagen)", type=["pdf", "png", "jpg"])
     
-    if st.button("🚀 Finalizar y Exportar"):
+    if archivo:
+        if not any(f["nombre_archivo"] == archivo.name for f in st.session_state.lote_facturas):
+            with st.spinner(f"Procesando {archivo.name}..."):
+                try:
+                    doc = fitz.open(stream=archivo.read(), filetype="pdf")
+                    img_bytes = doc.load_page(0).get_pixmap().pil_tobytes("png")
+                    img_opt, pil_img = optimizar_imagen(img_bytes)
+                    
+                    # 1. INTENTAR LECTURA QR
+                    qr_data = decode(pil_img)
+                    data = {}
+                    
+                    if qr_data:
+                        data = {"info": qr_data[0].data.decode('utf-8'), "metodo": "QR"}
+                    else:
+                        # 2. RESPALDO POR IA
+                        client = genai.Client(api_key=API_KEY)
+                        part = types.Part.from_bytes(data=img_opt, mime_type="image/jpeg")
+                        prompt = 'Extrae en JSON: {"rnc_suplidor": "", "ncf": "", "subtotal": 0.00, "itbis": 0.00, "monto_total": 0.00}'
+                        response = client.models.generate_content(
+                            model='gemini-2.0-flash', contents=[part, prompt],
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                        )
+                        data = json.loads(response.text)
+                        data["metodo"] = "IA"
+
+                    data["nombre_archivo"] = archivo.name
+                    data["alerta_duplicidad"] = verificar_duplicidad(data.get("ncf"), data.get("rnc_suplidor"), rnc_empresa)
+                    st.session_state.lote_facturas.append(data)
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    # --- EDITOR DE RESULTADOS ---
+    if st.session_state.lote_facturas:
         df = pd.DataFrame(st.session_state.lote_facturas)
-        df.to_excel(f"Reporte_{rnc_empresa}.xlsx", index=False)
-        st.success("Reporte generado.")
+        st.subheader("Auditoría de Lote")
+        edited_df = st.data_editor(df, use_container_width=True)
+        
+        if st.button("Exportar Excel"):
+            edited_df.to_excel("FacturaFlow_Reporte.xlsx", index=False)
+            st.success("¡Exportado con éxito!")
+else:
+    st.info("Configura tu RNC para comenzar.")
