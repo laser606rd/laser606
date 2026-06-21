@@ -79,7 +79,14 @@ if check_password():
         API_KEY = st.secrets.get("GEMINI_API_KEY")
         if "lote_facturas" not in st.session_state: st.session_state.lote_facturas = []
         
-        archivo = st.file_uploader("Sube factura (PDF/Imagen)", type=["pdf", "png", "jpg"])
+        st.subheader("📥 Carga de Documentos")
+        st.caption("Puedes arrastrar y soltar tus facturas (PDF, PNG, JPG) aquí o hacer clic para buscarlas.")
+        archivo = st.file_uploader(
+            "Cargar Factura", 
+            type=["pdf", "png", "jpg", "jpeg"],
+            accept_multiple_files=False,
+            help="Arrastra tu archivo PDF o imagen de factura aquí"
+        )
         
         if archivo:
             if not any(f.get("nombre_archivo") == archivo.name for f in st.session_state.lote_facturas):
